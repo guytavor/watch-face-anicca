@@ -115,16 +115,6 @@ class ParticleField {
         _lifeScale = lifeScale;
     }
 
-    public function maxCohorts(kind as ParticleKind) as Number {
-        var count = 0;
-        for (var i = 0; i < _kind.size(); i++) {
-            if (_kind[i] == kind) {
-                count++;
-            }
-        }
-        return count;
-    }
-
     //! Draws one frame at system time `now` (milliseconds); returns the number of particles drawn
     public function draw(dc as Graphics.Dc, now as Number) as Number {
         var drawn = 0;
