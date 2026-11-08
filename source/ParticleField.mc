@@ -14,8 +14,10 @@ enum ParticleKind {
 //! Particles are spawned, drawn and fade in cohorts: every particle of a cohort shares its birth, lifetime and size,
 //! so a frame needs one color change per cohort. Members land on random points, so the shared timing does not show.
 const COHORT_SIZE = 8;
-//! Brightness steps over a particle's life, following sin(pi * age)
+//! Brightness steps over a particle's life: sin(pi * age) * FADE_PLATEAU, capped at full, so a particle fades in,
+//! stays at full brightness through the middle of its life, and fades out
 const FADE_LEVELS = 16;
+const FADE_PLATEAU = 1.6;
 const SCREEN_CENTER = 227;
 const ARC_RADIUS = 194;
 const RING_RADIUS = 206;
@@ -98,7 +100,8 @@ class ParticleField {
         var green = (color >> 8) & 0xFF;
         var blue = color & 0xFF;
         for (var level = 0; level < FADE_LEVELS; level++) {
-            var alpha = Math.sin(Math.PI * (level + 0.5) / FADE_LEVELS) * intensity;
+            var alpha = Math.sin(Math.PI * (level + 0.5) / FADE_LEVELS) * FADE_PLATEAU;
+            alpha = (alpha > 1 ? 1 : alpha) * intensity;
             palette[level] = ((red * alpha).toNumber() << 16) | ((green * alpha).toNumber() << 8) | (blue * alpha).toNumber();
         }
         _palettes[kind] = palette;
@@ -159,7 +162,7 @@ class ParticleField {
         var first = cohort * COHORT_SIZE;
         _born[cohort] = now;
         if (kind == KIND_DIGIT) {
-            _life[cohort] = ((1600 + random() * 2400) * _lifeScale).toNumber();
+            _life[cohort] = ((1200 + random() * 1800) * _lifeScale).toNumber();
             _size[cohort] = 2 + Math.rand() % 2;
             if (_glyphs.isEmpty()) {
                 return;
@@ -167,11 +170,11 @@ class ParticleField {
             for (var i = first; i < first + COHORT_SIZE; i++) {
                 _glyphs.pickRandomPoint();
                 var angle = random() * 2 * Math.PI;
-                var speed = (1.5 + random() * 3) * _restlessness;
+                var speed = (3 + random() * 6) * _restlessness;
                 _x[i] = _glyphs.pointX + random() * 3 - 1.5;
                 _y[i] = _glyphs.pointY + random() * 3 - 1.5;
                 _velocityX[i] = Math.cos(angle) * speed;
-                _velocityY[i] = Math.sin(angle) * speed - 1.2;
+                _velocityY[i] = Math.sin(angle) * speed - 2.4;
             }
         } else if (kind == KIND_RING) {
             _life[cohort] = (2500 + random() * 3000).toNumber();

@@ -1,8 +1,10 @@
 #!/bin/bash
-# Builds the watch face: ./build.sh [probe] [simulate|install]
+# Builds the watch face: ./build.sh [probe] [simulate|install|log-on|log]
 #   probe     builds the feasibility probe (meditation detection and particle frame rates) instead of the face
 #   simulate  also runs it in the Connect IQ simulator
 #   install   also copies it to a watch connected by USB in MTP mode
+#   log-on    turns on the face's log on a connected watch (frame rates after each wrist raise)
+#   log       prints that log
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -22,7 +24,12 @@ fi
 mkdir -p bin
 "$SDK/bin/monkeyc" -f "$JUNGLE" -d "$DEVICE" -y "$KEY" -o "$PRG" -w
 
-if [[ "${1:-}" == "install" ]]; then
+if [[ "${1:-}" == "install" || "${1:-}" == "log-on" || "${1:-}" == "log" ]]; then
+    case "$1" in
+        install) ARGS=("$PRG") ;;
+        log-on) ARGS=(--log-on "$(basename "$PRG" .prg | tr '[:lower:]' '[:upper:]')") ;;
+        log) ARGS=(--log-read "$(basename "$PRG" .prg | tr '[:lower:]' '[:upper:]')" bin/watch.log) ;;
+    esac
     LIBMTP="$(brew --prefix libmtp)"
     if [[ ! -x bin/mtp_install || tools/mtp_install.c -nt bin/mtp_install ]]; then
         clang -o bin/mtp_install tools/mtp_install.c -I"$LIBMTP/include" -L"$LIBMTP/lib" -lmtp
@@ -32,7 +39,10 @@ if [[ "${1:-}" == "install" ]]; then
         pkill -x icdd || true
         pkill -x ptpcamerad || true
         pkill -x mscamerad-xpc || true
-        bin/mtp_install "$PRG" && exit 0
+        if bin/mtp_install "${ARGS[@]}"; then
+            [[ "$1" == "log" ]] && cat bin/watch.log
+            exit 0
+        fi
         sleep 2
     done
     exit 1

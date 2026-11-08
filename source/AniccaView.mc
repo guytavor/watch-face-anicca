@@ -11,21 +11,22 @@ import Toybox.Time.Gregorian;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-const COLOR_OCHRE = 0xD9A04A;
+//! The points of light: a brighter saffron than the design's ochre (#D9A04A), which reads dim on the watch
+const COLOR_SAFFRON = 0xFFB44C;
 const COLOR_EMBER = 0xD67054;
-//! Colors of the design's translucent greys and ochres, as they look over black
-const COLOR_DATE = 0x767168;
-const COLOR_DATA = 0x7E786F;
-const COLOR_ICON = 0x987034;
-const COLOR_WORD = 0x82602C;
-const COLOR_BREATH = 0xBDB8AE;
-const COLOR_SIT_ALERT = 0xB65F47;
-const COLOR_TRACK = 0x222222;
-const COLOR_LEAF = 0xC39043;
+//! The design's translucent greys and ochres over black, brightened for the watch
+const COLOR_DATE = 0xA39C90;
+const COLOR_DATA = 0xADA699;
+const COLOR_ICON = 0xC48F42;
+const COLOR_WORD = 0xB3843D;
+const COLOR_BREATH = 0xDDD8CE;
+const COLOR_SIT_ALERT = 0xD86C50;
+const COLOR_TRACK = 0x333333;
+const COLOR_LEAF = 0xE0A54C;
 const COLOR_LEAF_FILL = 0x2E2210;
 const COLOR_LEAF_HALO = 0x4A3618;
-const COLOR_LEAF_DOTS = 0x333333;
-const COLOR_ALWAYS_ON = 0x966E34;
+const COLOR_LEAF_DOTS = 0x4A4A4A;
+const COLOR_ALWAYS_ON = 0xA87A3A;
 
 const DAY_NAMES = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 const MONTH_NAMES = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
@@ -90,6 +91,11 @@ class AniccaView extends WatchUi.WatchFace {
     //! 0 shows "anicca", 1 "observe the breath"; eases between them while awake
     private var _cueMix as Float = 0.0;
     private var _lastFrameAt as Number = 0;
+    // Frame statistics of the current wrist raise, written to the watch's log on sleep (see logWindow)
+    private var _windowStartedAt as Number = 0;
+    private var _windowFrames as Number = 0;
+    private var _windowDrawMilliseconds as Number = 0;
+    private var _windowParticles as Number = 0;
 
     public function initialize() {
         WatchFace.initialize();
@@ -132,6 +138,7 @@ class AniccaView extends WatchUi.WatchFace {
     }
 
     public function onHide() as Void {
+        logWindow();
         stopAnimation();
     }
 
@@ -142,6 +149,7 @@ class AniccaView extends WatchUi.WatchFace {
     }
 
     public function onEnterSleep() as Void {
+        logWindow();
         _isAwake = false;
         stopAnimation();
         WatchUi.requestUpdate();
@@ -182,6 +190,9 @@ class AniccaView extends WatchUi.WatchFace {
         var frameAt = System.getTimer();
         var seconds = _lastFrameAt == 0 ? 1.0 : (frameAt - _lastFrameAt) / 1000.0;
         _lastFrameAt = frameAt;
+        if (_windowFrames == 0) {
+            _windowStartedAt = frameAt;
+        }
 
         var activityInfo = ActivityMonitor.getInfo();
         var stress = currentStress(activityInfo);
@@ -197,7 +208,25 @@ class AniccaView extends WatchUi.WatchFace {
         dc.setAntiAlias(false);
 
         updateParticles(activityInfo, stress);
-        _field.draw(dc, frameAt);
+        var drawn = _field.draw(dc, frameAt);
+        _windowFrames++;
+        _windowDrawMilliseconds += System.getTimer() - frameAt;
+        _windowParticles = drawn;
+    }
+
+    //! Writes the last wrist raise's frame rate to GARMIN/Apps/LOGS/ANICCA.TXT, when that file exists on the watch
+    //! (./build.sh log-on creates it): seconds awake, frames, frames per second, milliseconds per frame, points drawn
+    private function logWindow() as Void {
+        if (_windowFrames > 1) {
+            var elapsed = System.getTimer() - _windowStartedAt;
+            var info = Gregorian.info(Time.now(), Time.FORMAT_SHORT);
+            System.println((info.hour as Number).format("%02d") + ":" + (info.min as Number).format("%02d") +
+                " awake " + (elapsed / 1000) + " s, " + _windowFrames + " frames, " +
+                (_windowFrames * 10000 / (elapsed > 0 ? elapsed : 1) / 10.0).format("%.1f") + " fps, " +
+                (_windowDrawMilliseconds / _windowFrames) + " ms per frame, " + _windowParticles + " points");
+        }
+        _windowFrames = 0;
+        _windowDrawMilliseconds = 0;
     }
 
     //! Always-on: only sparse, dim, still dots for the time, moved a few pixels every minute; about 1% of pixels lit
@@ -214,17 +243,17 @@ class AniccaView extends WatchUi.WatchFace {
     private function updateParticles(activityInfo as ActivityMonitor.Info, stress as Number) as Void {
         var level = stress / 100.0;
         _field.setMood(1 + level * level * 1.3, 1 - level * 0.35);
-        _field.setActive(KIND_DIGIT, DIGIT_PARTICLES / COHORT_SIZE, COLOR_OCHRE, 1.0);
+        _field.setActive(KIND_DIGIT, DIGIT_PARTICLES / COHORT_SIZE, COLOR_SAFFRON, 1.0);
 
         var ringStrength = stress > STRESS_THRESHOLD ? (stress - STRESS_THRESHOLD) / (100.0 - STRESS_THRESHOLD) : 0.0;
         var ringCohorts = Math.round(RING_PARTICLES / COHORT_SIZE * ringStrength).toNumber();
         // Intensity in steps of a tenth, so the ring's palette is rebuilt only when stress moves noticeably
         var ringIntensity = Math.round((0.35 + ringStrength * 0.5) * 10) / 10.0;
-        _field.setActive(KIND_RING, ringCohorts, COLOR_OCHRE, ringIntensity);
+        _field.setActive(KIND_RING, ringCohorts, COLOR_SAFFRON, ringIntensity);
 
         var progress = stepProgress(activityInfo);
         _field.setRanges(KIND_STEPS, [STEPS_ARC_START - ARC_SPAN * progress, STEPS_ARC_START] as Array<Float>);
-        _field.setActive(KIND_STEPS, Math.round(ARC_PARTICLES / COHORT_SIZE * progress).toNumber(), COLOR_OCHRE, 0.9);
+        _field.setActive(KIND_STEPS, Math.round(ARC_PARTICLES / COHORT_SIZE * progress).toNumber(), COLOR_SAFFRON, 1.0);
 
         var moveLevel = moveBarLevel(activityInfo);
         var filled = _moveSegments.slice(0, moveLevel * 2);
@@ -233,7 +262,7 @@ class AniccaView extends WatchUi.WatchFace {
             filledLength += filled[i + 1] - filled[i];
         }
         _field.setRanges(KIND_MOVE, filled);
-        _field.setActive(KIND_MOVE, Math.round(ARC_PARTICLES / COHORT_SIZE * filledLength / ARC_SPAN).toNumber(), COLOR_EMBER, 0.9);
+        _field.setActive(KIND_MOVE, Math.round(ARC_PARTICLES / COHORT_SIZE * filledLength / ARC_SPAN).toNumber(), COLOR_EMBER, 1.0);
     }
 
     private function drawDateOrReminder(dc as Graphics.Dc, now as Gregorian.Info, status as SitStatus) as Void {

@@ -37,6 +37,8 @@ Then:
 ./build.sh                  # builds bin/Anicca.prg
 ./build.sh simulate         # builds and opens it in the simulator
 ./build.sh probe simulate   # the feasibility probe, bin/AniccaProbe.prg
+./build.sh log-on           # on a connected watch: log the frame rate after each wrist raise
+./build.sh log              # print that log
 ```
 
 ## Install on the watch
