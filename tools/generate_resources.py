@@ -33,7 +33,8 @@ DIGITS = "0123456789"
 
 # The design draws small text at 13-16 px on a 454 px canvas shown about 2.5 times larger
 # than the watch's screen; these sizes keep it legible on the wrist.
-# name, font file, weight (variable fonts), pixel size, characters, letter spacing, reference glyph
+# name, font file, weight (variable fonts), pixel size, characters, letter spacing, reference glyph (centered
+# vertically by TEXT_JUSTIFY_VCENTER)
 FONTS = [
     ("date", JOST, 500, 17, UPPERCASE + DIGITS + " ", 4, "H"),
     ("data", JOST, 400, 21, DIGITS + ":,-", 0, "H"),
@@ -63,8 +64,13 @@ def load_font(path, weight, size):
 
 def render_font(name, path, weight, size, characters, letter_spacing, reference):
     font = load_font(path, weight, size)
-    reference_top = font.getbbox(reference)[1]
-    reference_height = font.getbbox(reference)[3] - reference_top
+    # The compiler crops glyphs to the line box, so it is grown evenly above and below the reference glyph until every
+    # glyph fits; growing it evenly keeps the reference centered for TEXT_JUSTIFY_VCENTER.
+    reference_top, reference_bottom = font.getbbox(reference)[1], font.getbbox(reference)[3]
+    boxes = [font.getbbox(character) for character in characters if character != " "]
+    overshoot = max([0] + [reference_top - box[1] for box in boxes] + [box[3] - reference_bottom for box in boxes])
+    reference_top -= overshoot
+    reference_height = reference_bottom + overshoot - reference_top
 
     glyphs = []
     for character in characters:

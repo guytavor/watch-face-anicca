@@ -413,11 +413,14 @@ class AniccaView extends WatchUi.WatchFace {
     private function nextSunEvent(now as Gregorian.Info) as [Boolean, String] {
         var sunrise = complicationValue(Complications.COMPLICATION_TYPE_SUNRISE);
         var sunset = complicationValue(Complications.COMPLICATION_TYPE_SUNSET);
-        var secondsToday = (now.hour as Number) * 3600 + (now.min as Number) * 60;
-        if (sunrise instanceof Number && sunset instanceof Number && secondsToday >= sunrise && secondsToday < sunset) {
-            return [false, clockText(sunset)];
+        if (!(sunrise instanceof Number) || !(sunset instanceof Number)) {
+            return [true, clockText(sunrise)];
         }
-        return [true, clockText(sunrise)];
+        // Whichever comes first going around the clock from now, so it holds even if sunset falls after midnight
+        var secondsToday = (now.hour as Number) * 3600 + (now.min as Number) * 60;
+        var untilSunrise = (sunrise - secondsToday + 86400) % 86400;
+        var untilSunset = (sunset - secondsToday + 86400) % 86400;
+        return untilSunrise <= untilSunset ? [true, clockText(sunrise)] : [false, clockText(sunset)];
     }
 
     private function complicationValue(complicationType as Complications.Type) as Complications.Value or Null {
