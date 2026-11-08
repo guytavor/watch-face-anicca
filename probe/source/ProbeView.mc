@@ -7,8 +7,9 @@ import Toybox.Time.Gregorian;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-//! Particle counts tried in turn after each wrist raise
-const PROBE_LEVELS = [200, 400, 800, 1200] as Array<Number>;
+//! Point counts tried in turn after each wrist raise, in layers of PROBE_POINTS_PER_LAYER (see LightLayers)
+const PROBE_LEVELS = [240, 480, 720, 960] as Array<Number>;
+const PROBE_POINTS_PER_LAYER = 60;
 //! Each level runs this long; the first PROBE_WARM_UP_MS (while new particles phase in) are not measured
 const PROBE_LEVEL_MS = 2200;
 const PROBE_WARM_UP_MS = 800;
@@ -23,7 +24,7 @@ const PROBE_TEXT = 0xBBBBBB;
 class ProbeView extends WatchUi.WatchFace {
 
     private var _glyphs as TimeGlyphs = new TimeGlyphs();
-    private var _field as ParticleField or Null = null;
+    private var _field as LightLayers or Null = null;
     private var _meditation as MeditationCheck = new MeditationCheck(true);
     private var _timer as Timer.Timer or Null = null;
     private var _levelIndex as Number = -1;
@@ -84,9 +85,8 @@ class ProbeView extends WatchUi.WatchFace {
     private function startLevel(index as Number) as Void {
         _levelIndex = index;
         _field = null;
-        var cohorts = PROBE_LEVELS[index] / COHORT_SIZE;
-        var field = new ParticleField(_glyphs, [cohorts, 0, 0, 0] as Array<Number>);
-        field.setActive(KIND_DIGIT, cohorts, PROBE_OCHRE, 0.85);
+        var field = new LightLayers(_glyphs, [PROBE_LEVELS[index] / PROBE_POINTS_PER_LAYER, 0, 0, 0] as Array<Number>);
+        field.setKind(KIND_DIGIT, PROBE_POINTS_PER_LAYER, PROBE_OCHRE, 1.0);
         _field = field;
         _levelStartedAt = System.getTimer();
         _frames = 0;

@@ -13,14 +13,14 @@ A Connect IQ watch face for the Garmin fēnix 9 47mm / 51mm (`fenix947mm`, 454 x
 
 In always-on mode only sparse, dim, still dots of the time are drawn (about 1% of the pixels), shifted a few pixels every minute against burn-in.
 
-The animation runs during the watch's high-power window, the ~10 seconds after a wrist raise. The particle budget is set by `DIGIT_PARTICLES`, `ARC_PARTICLES` and `RING_PARTICLES` in `source/AniccaView.mc`.
+The animation runs during the watch's high-power window, the ~10 seconds after a wrist raise. Every drawing call is costly on the watch (drawing each point separately ran at 3 frames a second), so the points are drawn in layers: each layer is a two-color bitmap of scattered points that fades by having its palette recolored and is drawn in one call, and a layer that has faded out is redrawn with fresh points (`source/LightLayers.mc`). The date, leaf, readings and tracks are cached in a bitmap that is redrawn only when they change. The number of layers and points per layer are set at the top of `source/AniccaView.mc`; `./build.sh log-on` makes the face log its frame rate after each wrist raise.
 
 ## Feasibility probe
 
 `./build.sh probe` builds *Anicca Probe*, a separate watch face for testing on the watch:
 
 - **Meditation detection**: whether `UserProfile.getUserActivityHistory()` has an `Activity.SPORT_MEDITATION` activity started today, when it last checked and how long the call took, and the first two history entries (sport type, start and duration; `*` marks a start time counted from Garmin's 1989 epoch). The answer is cached and refreshed every 5 minutes, as in the face.
-- **Particle budget**: after each wrist raise, the time is drawn from 200, 400, 800 and 1200 points for 2.2 seconds each, then the frame rate and milliseconds per frame of each are listed (the timer caps it at 20 fps). The simulator's numbers say nothing about the watch.
+- **Particle budget**: after each wrist raise, the time is drawn from 240, 480, 720 and 960 points (4 to 16 layers of 60) for 2.2 seconds each, then the frame rate and milliseconds per frame of each are listed (the timer caps it at 20 fps). The simulator's numbers say nothing about the watch.
 
 ## Build
 

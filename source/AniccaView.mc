@@ -31,11 +31,15 @@ const COLOR_ALWAYS_ON = 0xA87A3A;
 const DAY_NAMES = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 const MONTH_NAMES = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 
-// Particle budget: how many points of light each element may use at most. Lower these if the animation stutters
-// on the watch (the probe, ./build.sh probe, measures frame rates for 200 to 1200 points).
-const DIGIT_PARTICLES = 480;
-const ARC_PARTICLES = 128;
-const RING_PARTICLES = 96;
+// Points of light: how many layers each element has, and how many points a layer holds (see LightLayers). A frame
+// costs a couple of drawing calls per layer, and each layer that fades out costs one call per point to redraw; the
+// frame-rate log (./build.sh log-on, then ./build.sh log) shows what the watch keeps up with.
+const DIGIT_LAYERS = 8;
+const DIGIT_POINTS_PER_LAYER = 60;
+const ARC_LAYERS = 3;
+const ARC_POINTS_PER_LAYER = 40;
+const RING_LAYERS = 2;
+const RING_POINTS_PER_LAYER = 48;
 const FRAME_MS = 50;
 
 //! From 20:00, a day without a sit turns the leaf ember and the date reads TIME TO SIT
@@ -79,8 +83,11 @@ class AniccaView extends WatchUi.WatchFace {
     private var _wordFont as Graphics.FontType;
     private var _breathFont as Graphics.FontType;
     private var _glyphs as TimeGlyphs = new TimeGlyphs();
-    private var _field as ParticleField;
-    private var _meditation as MeditationCheck = new MeditationCheck(false);
+    private var _layers as LightLayers;
+    private var _meditation as MeditationCheck = new MeditationCheck(true);
+    //! Everything that holds still while awake (date, leaf, readings, tracks), redrawn only when it changes
+    private var _staticBitmap as Graphics.BufferedBitmapReference or Null = null;
+    private var _staticKey as String = "";
     private var _timer as Timer.Timer or Null = null;
     private var _isAwake as Boolean = true;
     //! Flat [low, high, ...] angles of the five move bar segments
@@ -96,6 +103,10 @@ class AniccaView extends WatchUi.WatchFace {
     private var _windowFrames as Number = 0;
     private var _windowDrawMilliseconds as Number = 0;
     private var _windowParticles as Number = 0;
+    private var _windowStaticMilliseconds as Number = 0;
+    private var _windowStaticRedraws as Number = 0;
+    private var _windowStress as Number = 0;
+    private var _loggedCheckAt as Number or Null = null;
 
     public function initialize() {
         WatchFace.initialize();
@@ -103,8 +114,7 @@ class AniccaView extends WatchUi.WatchFace {
         _dataFont = WatchUi.loadResource(Rez.Fonts.Data) as Graphics.FontType;
         _wordFont = WatchUi.loadResource(Rez.Fonts.Word) as Graphics.FontType;
         _breathFont = WatchUi.loadResource(Rez.Fonts.Breath) as Graphics.FontType;
-        _field = new ParticleField(_glyphs, [DIGIT_PARTICLES / COHORT_SIZE, ARC_PARTICLES / COHORT_SIZE,
-            ARC_PARTICLES / COHORT_SIZE, RING_PARTICLES / COHORT_SIZE] as Array<Number>);
+        _layers = new LightLayers(_glyphs, [DIGIT_LAYERS, ARC_LAYERS, ARC_LAYERS, RING_LAYERS] as Array<Number>);
 
         _moveSegments = [] as Array<Float>;
         var segmentStart = MOVE_ARC_START;
@@ -176,13 +186,14 @@ class AniccaView extends WatchUi.WatchFace {
     }
 
     public function onUpdate(dc as Graphics.Dc) as Void {
-        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
-        dc.clear();
         var now = Gregorian.info(Time.now(), Time.FORMAT_SHORT);
         _glyphs.setText(timeText(now), SCREEN_CENTER, TIME_CENTER_Y);
         _meditation.refreshIfDue();
+        logMeditation();
 
         if (!_isAwake && System.getDeviceSettings().requiresBurnInProtection) {
+            dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
+            dc.clear();
             drawAlwaysOn(dc, now);
             return;
         }
@@ -199,19 +210,68 @@ class AniccaView extends WatchUi.WatchFace {
         var isStressed = stress > STRESS_THRESHOLD;
         var status = sitStatus(now);
 
+        drawStatics(dc, activityInfo, now, status);
+        var staticsDoneAt = System.getTimer();
+        updateLayers(activityInfo, stress);
+        var drawn = _layers.draw(dc, frameAt);
         dc.setAntiAlias(true);
-        drawDateOrReminder(dc, now, status);
-        drawLeaf(dc, status, frameAt);
+        if (status == SIT_ALERT) {
+            drawLeaf(dc, status, frameAt);
+        }
         drawWord(dc, isStressed, _isAwake ? seconds : 1.0);
-        drawReadings(dc, activityInfo, now);
-        drawTracks(dc);
         dc.setAntiAlias(false);
 
-        updateParticles(activityInfo, stress);
-        var drawn = _field.draw(dc, frameAt);
         _windowFrames++;
         _windowDrawMilliseconds += System.getTimer() - frameAt;
+        _windowStaticMilliseconds += staticsDoneAt - frameAt;
         _windowParticles = drawn;
+        _windowStress = stress;
+    }
+
+    //! Draws the parts that hold still while awake from a cached bitmap, redrawing it only when one of them changes
+    private function drawStatics(dc as Graphics.Dc, activityInfo as ActivityMonitor.Info, now as Gregorian.Info,
+            status as SitStatus) as Void {
+        var heartRate = currentHeartRate();
+        var sunEvent = nextSunEvent(now);
+        var steps = activityInfo.steps;
+        var key = dateText(now) + status + "|" + heartRate + "|" + sunEvent[0] + sunEvent[1] + "|" + steps;
+        var reference = _staticBitmap;
+        var bitmap = reference != null ? reference.get() as Graphics.BufferedBitmap or Null : null;
+        if (bitmap == null) {
+            _staticKey = "";
+            try {
+                reference = Graphics.createBufferedBitmap({:width => 454, :height => 454});
+                _staticBitmap = reference;
+                bitmap = reference.get() as Graphics.BufferedBitmap or Null;
+            } catch (exception) {
+                bitmap = null;
+            }
+        }
+        if (bitmap == null) {
+            // No graphics memory to spare: draw straight to the screen
+            paintStatics(dc, now, status, heartRate, sunEvent, steps);
+            return;
+        }
+        if (!key.equals(_staticKey)) {
+            paintStatics(bitmap.getDc(), now, status, heartRate, sunEvent, steps);
+            _staticKey = key;
+            _windowStaticRedraws++;
+        }
+        dc.drawBitmap(0, 0, bitmap);
+    }
+
+    private function paintStatics(dc as Graphics.Dc, now as Gregorian.Info, status as SitStatus, heartRate as Number or Null,
+            sunEvent as [Boolean, String], steps as Number or Null) as Void {
+        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
+        dc.clear();
+        dc.setAntiAlias(true);
+        drawDateOrReminder(dc, now, status);
+        if (status != SIT_ALERT) {
+            drawLeaf(dc, status, 0);
+        }
+        drawReadings(dc, heartRate, sunEvent, steps);
+        drawTracks(dc);
+        dc.setAntiAlias(false);
     }
 
     //! Writes the last wrist raise's frame rate to GARMIN/Apps/LOGS/ANICCA.TXT, when that file exists on the watch
@@ -223,10 +283,29 @@ class AniccaView extends WatchUi.WatchFace {
             System.println((info.hour as Number).format("%02d") + ":" + (info.min as Number).format("%02d") +
                 " awake " + (elapsed / 1000) + " s, " + _windowFrames + " frames, " +
                 (_windowFrames * 10000 / (elapsed > 0 ? elapsed : 1) / 10.0).format("%.1f") + " fps, " +
-                (_windowDrawMilliseconds / _windowFrames) + " ms per frame, " + _windowParticles + " points");
+                (_windowDrawMilliseconds / _windowFrames) + " ms per frame (" + (_windowStaticMilliseconds / _windowFrames) +
+                " static, redrawn " + _windowStaticRedraws + "x), " + _windowParticles + " points, " + _layers.redraws +
+                " layer redraws, stress " + _windowStress);
         }
         _windowFrames = 0;
         _windowDrawMilliseconds = 0;
+        _windowStaticMilliseconds = 0;
+        _windowStaticRedraws = 0;
+        _layers.redraws = 0;
+    }
+
+    //! Logs what each new meditation check found: whether there was a sit today, and the newest activities
+    private function logMeditation() as Void {
+        var checkedAt = _meditation.checkedAt;
+        if (checkedAt == null || checkedAt == _loggedCheckAt) {
+            return;
+        }
+        _loggedCheckAt = checkedAt;
+        System.println("meditation check: sit today " + _meditation.sitToday + ", " + _meditation.entryCount + " activities, " +
+            _meditation.queryMilliseconds + " ms" + (_meditation.error != null ? ", error " + _meditation.error : ""));
+        for (var i = 0; i < _meditation.entries.size(); i++) {
+            System.println("  " + _meditation.entries[i]);
+        }
     }
 
     //! Always-on: only sparse, dim, still dots for the time, moved a few pixels every minute; about 1% of pixels lit
@@ -240,20 +319,20 @@ class AniccaView extends WatchUi.WatchFace {
         _lastFrameAt = 0;
     }
 
-    private function updateParticles(activityInfo as ActivityMonitor.Info, stress as Number) as Void {
+    private function updateLayers(activityInfo as ActivityMonitor.Info, stress as Number) as Void {
         var level = stress / 100.0;
-        _field.setMood(1 + level * level * 1.3, 1 - level * 0.35);
-        _field.setActive(KIND_DIGIT, DIGIT_PARTICLES / COHORT_SIZE, COLOR_SAFFRON, 1.0);
+        _layers.setMood(1 + level * level * 1.3, 1 - level * 0.35);
+        _layers.setKind(KIND_DIGIT, DIGIT_POINTS_PER_LAYER, COLOR_SAFFRON, 1.0);
 
         var ringStrength = stress > STRESS_THRESHOLD ? (stress - STRESS_THRESHOLD) / (100.0 - STRESS_THRESHOLD) : 0.0;
-        var ringCohorts = Math.round(RING_PARTICLES / COHORT_SIZE * ringStrength).toNumber();
+        var ringPoints = Math.round(RING_POINTS_PER_LAYER * ringStrength).toNumber();
         // Intensity in steps of a tenth, so the ring's palette is rebuilt only when stress moves noticeably
         var ringIntensity = Math.round((0.35 + ringStrength * 0.5) * 10) / 10.0;
-        _field.setActive(KIND_RING, ringCohorts, COLOR_SAFFRON, ringIntensity);
+        _layers.setKind(KIND_RING, ringPoints, COLOR_SAFFRON, ringIntensity);
 
         var progress = stepProgress(activityInfo);
-        _field.setRanges(KIND_STEPS, [STEPS_ARC_START - ARC_SPAN * progress, STEPS_ARC_START] as Array<Float>);
-        _field.setActive(KIND_STEPS, Math.round(ARC_PARTICLES / COHORT_SIZE * progress).toNumber(), COLOR_SAFFRON, 1.0);
+        _layers.setRanges(KIND_STEPS, [STEPS_ARC_START - ARC_SPAN * progress, STEPS_ARC_START] as Array<Float>);
+        _layers.setKind(KIND_STEPS, Math.round(ARC_POINTS_PER_LAYER * progress).toNumber(), COLOR_SAFFRON, 1.0);
 
         var moveLevel = moveBarLevel(activityInfo);
         var filled = _moveSegments.slice(0, moveLevel * 2);
@@ -261,8 +340,8 @@ class AniccaView extends WatchUi.WatchFace {
         for (var i = 0; i < filled.size(); i += 2) {
             filledLength += filled[i + 1] - filled[i];
         }
-        _field.setRanges(KIND_MOVE, filled);
-        _field.setActive(KIND_MOVE, Math.round(ARC_PARTICLES / COHORT_SIZE * filledLength / ARC_SPAN).toNumber(), COLOR_EMBER, 1.0);
+        _layers.setRanges(KIND_MOVE, filled);
+        _layers.setKind(KIND_MOVE, Math.round(ARC_POINTS_PER_LAYER * filledLength / ARC_SPAN).toNumber(), COLOR_EMBER, 1.0);
     }
 
     private function drawDateOrReminder(dc as Graphics.Dc, now as Gregorian.Info, status as SitStatus) as Void {
@@ -330,22 +409,20 @@ class AniccaView extends WatchUi.WatchFace {
     }
 
     //! Heart rate (left), the next sunrise or sunset (right) and today's steps below
-    private function drawReadings(dc as Graphics.Dc, activityInfo as ActivityMonitor.Info, now as Gregorian.Info) as Void {
+    private function drawReadings(dc as Graphics.Dc, heartRate as Number or Null, sunEvent as [Boolean, String],
+            steps as Number or Null) as Void {
         var justifyLeft = Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER;
         dc.setPenWidth(2);
         dc.setColor(COLOR_ICON, Graphics.COLOR_TRANSPARENT);
         for (var i = 2; i < HEART_OUTLINE.size(); i += 2) {
             dc.drawLine(HEART_X + HEART_OUTLINE[i - 2], DATA_Y + HEART_OUTLINE[i - 1], HEART_X + HEART_OUTLINE[i], DATA_Y + HEART_OUTLINE[i + 1]);
         }
-        var sunEvent = nextSunEvent(now);
         drawSunIcon(dc, SUN_X, DATA_Y - 1, sunEvent[0] as Boolean);
         dc.setPenWidth(1);
 
         dc.setColor(COLOR_DATA, Graphics.COLOR_TRANSPARENT);
-        var heartRate = currentHeartRate();
         dc.drawText(HEART_RATE_X, DATA_Y, _dataFont, heartRate != null ? heartRate.format("%d") : "--", justifyLeft);
         dc.drawText(SUN_TIME_X, DATA_Y, _dataFont, sunEvent[1] as String, justifyLeft);
-        var steps = activityInfo.steps;
         dc.drawText(SCREEN_CENTER, STEPS_Y, _dataFont, steps != null ? withThousands(steps) : "--",
             Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
     }
