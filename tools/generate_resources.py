@@ -37,7 +37,7 @@ DIGITS = "0123456789"
 # vertically by TEXT_JUSTIFY_VCENTER)
 FONTS = [
     ("date", JOST, 500, 17, UPPERCASE + DIGITS + " ", 4, "H"),
-    ("data", JOST, 400, 21, DIGITS + ":,-", 0, "H"),
+    ("data", JOST, 400, 23, DIGITS + ":,-", 0, "H"),
     ("word", SPECTRAL_ITALIC, None, 36, "anic", 0, "x"),
     ("breath", SPECTRAL_ITALIC, None, 28, "observthba ", 0, "x"),
 ]

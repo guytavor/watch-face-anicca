@@ -7,8 +7,11 @@ import Toybox.UserProfile;
 
 //! Reading the activity history can be slow, so the answer is kept for a few minutes (and for the rest of the day once yes)
 const MEDITATION_REFRESH_SECONDS = 300;
-//! At most this many history entries are read
-const MEDITATION_HISTORY_LIMIT = 40;
+//! At most this many history entries are read. The history comes oldest first (on the fenix 9 its first entries were
+//! weeks old), so today's activities are at its end and the whole of it has to be read.
+const MEDITATION_HISTORY_LIMIT = 500;
+//! The newest this many entries are described, when descriptions are asked for
+const MEDITATION_DESCRIBED = 4;
 //! Seconds from the Unix epoch to Garmin's (1989-12-31); some firmware reports activity start times from Garmin's epoch
 const GARMIN_EPOCH_OFFSET = 631065600;
 
@@ -21,7 +24,7 @@ class MeditationCheck {
     public var queryMilliseconds as Number = 0;
     public var entryCount as Number = 0;
     public var error as String or Null = null;
-    //! Descriptions of the first few history entries, kept only when asked for (the feasibility probe shows them)
+    //! Descriptions of the newest few history entries, newest first, kept only when asked for (the probe shows them)
     public var entries as Array<String> = [] as Array<String>;
     private var _describeEntries as Boolean;
 
@@ -63,8 +66,11 @@ class MeditationCheck {
                 if (activity.type == Activity.SPORT_MEDITATION && start != null && start >= midnight) {
                     found = true;
                 }
-                if (_describeEntries && descriptions.size() < 4) {
+                if (_describeEntries) {
                     descriptions.add(describe(activity, start));
+                    if (descriptions.size() > MEDITATION_DESCRIBED) {
+                        descriptions = descriptions.slice(1, null);
+                    }
                 }
                 activity = iterator.next() as UserProfile.UserActivity or Null;
             }
@@ -76,7 +82,7 @@ class MeditationCheck {
         }
         sitToday = found;
         entryCount = count;
-        entries = descriptions;
+        entries = descriptions.reverse();
         checkedAt = now;
         queryMilliseconds = System.getTimer() - started;
     }

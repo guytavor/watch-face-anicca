@@ -188,8 +188,12 @@ class AniccaView extends WatchUi.WatchFace {
     public function onUpdate(dc as Graphics.Dc) as Void {
         var now = Gregorian.info(Time.now(), Time.FORMAT_SHORT);
         _glyphs.setText(timeText(now), SCREEN_CENTER, TIME_CENTER_Y);
-        _meditation.refreshIfDue();
-        logMeditation();
+        // Reading the activity history takes a while (about half a second for 40 entries on the fenix 9), so it is
+        // read in the once-a-minute updates while asleep, not during the animation (unless never read yet)
+        if (!_isAwake || _meditation.checkedAt == null) {
+            _meditation.refreshIfDue();
+            logMeditation();
+        }
 
         if (!_isAwake && System.getDeviceSettings().requiresBurnInProtection) {
             dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);

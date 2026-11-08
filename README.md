@@ -19,7 +19,7 @@ The animation runs during the watch's high-power window, the ~10 seconds after a
 
 `./build.sh probe` builds *Anicca Probe*, a separate watch face for testing on the watch:
 
-- **Meditation detection**: whether `UserProfile.getUserActivityHistory()` has an `Activity.SPORT_MEDITATION` activity started today, when it last checked and how long the call took, and the first two history entries (sport type, start and duration; `*` marks a start time counted from Garmin's 1989 epoch). The answer is cached and refreshed every 5 minutes, as in the face.
+- **Meditation detection**: whether `UserProfile.getUserActivityHistory()` has an `Activity.SPORT_MEDITATION` activity started today, when it last checked and how long the call took, and the two newest history entries (the history comes oldest first, so the whole of it is read) (sport type, start and duration; `*` marks a start time counted from Garmin's 1989 epoch). The answer is cached and refreshed every 5 minutes, as in the face.
 - **Particle budget**: after each wrist raise, the time is drawn from 240, 480, 720 and 960 points (4 to 16 layers of 60) for 2.2 seconds each, then the frame rate and milliseconds per frame of each are listed (the timer caps it at 20 fps). The simulator's numbers say nothing about the watch.
 
 ## Build
