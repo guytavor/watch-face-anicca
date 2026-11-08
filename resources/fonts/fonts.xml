@@ -1,0 +1,6 @@
+<fonts>
+    <font id="Date" filename="date.fnt" antialias="true"/>
+    <font id="Data" filename="data.fnt" antialias="true"/>
+    <font id="Word" filename="word.fnt" antialias="true"/>
+    <font id="Breath" filename="breath.fnt" antialias="true"/>
+</fonts>

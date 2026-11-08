@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<iq:manifest version="3" xmlns:iq="http://www.garmin.com/xml/connectiq">
+    <iq:application id="4a6e482108e94fb1a6a57feeaac29f0c" type="watchface" name="@Strings.ProbeName" entry="ProbeApp" launcherIcon="@Drawables.LauncherIcon" minApiLevel="5.0.0">
+        <iq:products>
+            <iq:product id="fenix947mm"/>
+        </iq:products>
+        <iq:permissions>
+            <iq:uses-permission id="ComplicationSubscriber"/>
+            <iq:uses-permission id="SensorHistory"/>
+            <iq:uses-permission id="UserProfile"/>
+        </iq:permissions>
+        <iq:languages>
+            <iq:language>eng</iq:language>
+        </iq:languages>
+        <iq:barrels/>
+    </iq:application>
+</iq:manifest>

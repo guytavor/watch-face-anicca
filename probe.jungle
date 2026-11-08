@@ -1,0 +1,4 @@
+# Feasibility probe: meditation detection and particle frame rates (./build.sh probe)
+project.manifest = probe/manifest.xml
+base.sourcePath = source;probe/source
+base.resourcePath = resources
